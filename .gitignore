@@ -1,0 +1,22 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+
+# Environment and secrets
+.env
+
+# Tooling and IDE
+.vscode/
+.idea/
+
+# macOS cruft
+.DS_Store
+
+# Testing/output artifacts
+.pytest_cache/
+.coverage
+coverage.xml
