@@ -13,57 +13,64 @@ logger = logging.getLogger("fvk.worker")
 redis_client = get_redis()
 
 def split_message(text: str):
-    """Quebra mensagens grandes em blocos naturais"""
-    # Se tiver quebra de linha dupla, usa ela (parágrafos naturais)
+    """Divide em blocos legíveis, simulando envio humano."""
     if "\n\n" in text:
         parts = text.split("\n\n")
         return [p.strip() for p in parts if p.strip()]
 
-    # Não quebrar textos curtos para evitar cortes em abreviações como "Dra."
-    if len(text) <= 400:
-        return [text.strip()]
-
-    # Split manual evitando abreviações comuns e juntando pedaços muito curtos
     abbrev = {"dr", "dra", "sr", "sra", "srta", "srs", "prof", "profa"}
-
-    def is_abbrev(segment: str) -> bool:
-        match = re.search(r"([A-Za-zÀ-ÿ]+)\s*$", segment)
-        if not match:
-            return False
-        return match.group(1).lower().strip(".") in abbrev
-
-    parts = []
-    buffer = []
+    sentences = []
+    buf = []
+    n = len(text)
 
     for idx, ch in enumerate(text):
-        buffer.append(ch)
-        if ch in ".!?":
-            prev_text = "".join(buffer[:-1])
-            if is_abbrev(prev_text):
-                continue
+        buf.append(ch)
+        if ch not in ".!?":
+            continue
 
-            next_char = text[idx + 1] if idx + 1 < len(text) else ""
-            if next_char and not next_char.isspace():
-                continue
+        # Evita quebrar números com ponto (ex: 4.000)
+        prev_c = text[idx - 1] if idx - 1 >= 0 else ""
+        next_c = text[idx + 1] if idx + 1 < n else ""
+        if prev_c.isdigit() and next_c.isdigit():
+            continue
 
-            segment = "".join(buffer).strip()
-            if segment:
-                parts.append(segment)
-            buffer = []
+        prev_text = "".join(buf[:-1])
+        match = re.search(r"([A-Za-zÀ-ÿ]+)\s*$", prev_text)
+        prev_word = match.group(1).lower().strip(".") if match else ""
+        if prev_word in abbrev:
+            continue
 
-    remainder = "".join(buffer).strip()
+        if next_c and not next_c.isspace():
+            continue
+
+        sentences.append("".join(buf).strip())
+        buf = []
+
+    remainder = "".join(buf).strip()
     if remainder:
-        parts.append(remainder)
+        sentences.append(remainder)
 
-    # Junta pedaços muito curtos para não ficar frase quebrada
-    merged = []
-    for part in parts:
-        if merged and (len(part) < 80 or len(merged[-1]) < 80):
-            merged[-1] = (merged[-1] + " " + part).strip()
+    if not sentences:
+        return [text.strip()]
+
+    # Agrupa sentenças em blocos com tamanho alvo (~130) para parecer humano
+    max_len = 130
+    chunks = []
+    current = ""
+
+    for sent in sentences:
+        candidate = f"{current} {sent}".strip() if current else sent
+        if len(candidate) <= max_len:
+            current = candidate
         else:
-            merged.append(part)
+            if current:
+                chunks.append(current.strip())
+            current = sent
 
-    return merged or [text.strip()]
+    if current:
+        chunks.append(current.strip())
+
+    return chunks or [text.strip()]
 
 @celery_app.task(bind=True, name="process_message_buffer")
 def process_message_buffer(self, conversation_id: int, account_id: int, inbox_name: str):
